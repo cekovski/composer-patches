@@ -289,6 +289,7 @@ class Patches implements PluginInterface, EventSubscriberInterface {
     $extra = $this->composer->getPackage()->getExtra();
     $exitOnFailure = getenv('COMPOSER_EXIT_ON_PATCH_FAILURE') || !empty($extra['composer-exit-on-patch-failure']);
     $skipReporting = getenv('COMPOSER_PATCHES_SKIP_REPORTING') || !empty($extra['composer-patches-skip-reporting']);
+    $removeNoBackupIfMismatch = getenv('COMPOSER_PATCHES_REMOVE_NO_BACKUP') || !empty($extra['composer-patches-remove-no-backup']);
 
     // Get the package object for the current operation.
     $operation = $event->getOperation();
@@ -321,7 +322,7 @@ class Patches implements PluginInterface, EventSubscriberInterface {
       $this->io->write('    <info>' . $url . '</info> (<comment>' . $description. '</comment>)');
       try {
         $this->eventDispatcher->dispatch(NULL, new PatchEvent(PatchEvents::PRE_PATCH_APPLY, $package, $url, $description));
-        $this->getAndApplyPatch($downloader, $install_path, $url, $package);
+        $this->getAndApplyPatch($downloader, $install_path, $url, $package, $removeNoBackupIfMismatch);
         $this->eventDispatcher->dispatch(NULL, new PatchEvent(PatchEvents::POST_PATCH_APPLY, $package, $url, $description));
         $extra['patches_applied'][$description] = $url;
       }
@@ -371,7 +372,7 @@ class Patches implements PluginInterface, EventSubscriberInterface {
    * @param PackageInterface $package
    * @throws \Exception
    */
-  protected function getAndApplyPatch(HttpDownloader $downloader, $install_path, $patch_url, PackageInterface $package) {
+  protected function getAndApplyPatch(HttpDownloader $downloader, $install_path, $patch_url, PackageInterface $package, $removeNoBackupIfMismatch) {
 
     // Local patch file.
     if (file_exists($patch_url)) {
@@ -409,8 +410,15 @@ class Patches implements PluginInterface, EventSubscriberInterface {
       foreach ($patch_levels as $patch_level) {
         // --no-backup-if-mismatch here is a hack that fixes some
         // differences between how patch works on windows and unix.
-        if ($patched = $this->executeCommand("patch %s --no-backup-if-mismatch -d %s < %s", $patch_level, $install_path, $filename)) {
-          break;
+        if($removeNoBackupIfMismatch) {
+          if ($patched = $this->executeCommand("patch %s -d %s < %s", $patch_level, $install_path, $filename)) {
+            break;
+          }
+        }
+        else {
+          if ($patched = $this->executeCommand("patch %s --no-backup-if-mismatch -d %s < %s", $patch_level, $install_path, $filename)) {
+            break;
+          }
         }
       }
     }
